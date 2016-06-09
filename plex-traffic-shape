@@ -1,13 +1,5 @@
 #!/bin/sh
 # Setup Traffic Control to limit outgoing bandwidth
-# Sourced from:
-#   * http://www.cyberciti.biz/faq/linux-traffic-shaping-using-tc-to-control-http-traffic
-#   * https://forums.plex.tv/topic/39823-howto-limit-plex-media-server-bandwidth-on-linux/?p=466013
-#   * http://serverfault.com/questions/174010/limit-network-bandwith-for-an-ip
-#   * http://luxik.cdi.cz/~devik/qos/htb/manual/userg.htm
-#
-# Ensure that the sch_htb module is available.
-# For very high rates, you may need to adjust the quantum values. See: http://mailman.ds9a.nl/pipermail/lartc/2003q1/007508.html
 
 #Timestamp Function for logging info
 ts () {
@@ -16,11 +8,11 @@ ts () {
 }
 
 usage() {
-  echo "$0 ifdev rate maxrate ipblock port"
+  echo "$0 ifdev rate maxrate ipblock [port]"
   echo -e "\tifdev is usually eth0"
   echo -e "\trate and maxrate are a rate accepted by tc (e.g. 500kbit, 1mbit)"
   echo -e "\tipblock is a IP block per iptables syntax (e.g. 192.168.1.0/24"
-  echo -e "\tport is the port that your plex server is listening on (eg 32400)"
+  echo -e "\tPort is the port that your plex server is listening on (default: 32400)"
   exit 1
 }
 
@@ -48,19 +40,13 @@ sleep 1
 
 ### Delete all TC rules for $IFDEV
 ts "Delete all TC rules for $IFDEV"
-ts "Running: \"/sbin/tc qdisc del dev $IFDEV root 2> /dev/null || /bin/true\""
-#/sbin/tc qdisc del dev $IFDEV root 2> /dev/null || /bin/true
-#/sbin/tc qdisc del dev $IFDEV root 2> /dev/null 
+ts "Running: \"/sbin/tc qdisc del dev $IFDEV root 2>/dev/null || /bin/true\""
 /sbin/tc qdisc del dev $IFDEV root
 
 ### Delete the iptables mangle rule if it exists
 ts "Delete the iptables mangle rule if it exists"
-##ts "Running: \"/sbin/iptables -D OUTPUT -t mangle -p tcp --port ${PORT} ! --dst "$IPBLOCK" -j MARK --set-mark 10  2> /dev/null || /bin/true\""
-###/sbin/iptables -D OUTPUT -t mangle -p tcp --sport ${PORT} ! --dst "$IPBLOCK" -j MARK --set-mark 10  2> /dev/null || /bin/true
-##/sbin/iptables -D OUTPUT -t mangle -p tcp --sport ${PORT} ! --dst "$IPBLOCK" -j MARK --set-mark 10
-ts "Running: \"/sbin/iptables -t mangle --flush 2> /dev/null || /bin/true\""
-#/sbin/iptables -t mangle --flush 2> /dev/null || /bin/true
-/sbin/iptables -t mangle --flush 
+ts "Running: \"/sbin/iptables -t mangle --flush 2>/dev/null || /bin/true\""
+/sbin/iptables -t mangle --flush 2>/dev/null || /bin/true
 
 ### Activate queueing discipline
 ts "Activate queueing discipline"
@@ -80,8 +66,8 @@ ts "Send packets in round-robin if we have too many clients and too little BW"
 ts "Running: \"/sbin/tc qdisc add dev $IFDEV parent 1:10 handle 100: sfq perturb 10\""
 /sbin/tc qdisc add dev $IFDEV parent 1:10 handle 100: sfq perturb 10
  
-### Create iptables mangle rule for outgoing port ${PORT}(Plex Media Server)
-ts "Create iptables mangle rule for outgoing port ${PORT}(Plex Media Server)"
+### Create iptables mangle rule for outgoing port ${PORT} (Plex Media Server)
+ts "Create iptables mangle rule for outgoing port ${PORT} (Plex Media Server)"
 ts "Running: \"/sbin/iptables -A OUTPUT -t mangle -p tcp --sport ${PORT} ! --dst \"$IPBLOCK\" -j MARK --set-mark 10\""
 /sbin/iptables -A OUTPUT -t mangle -p tcp --sport ${PORT} ! --dst "$IPBLOCK" -j MARK --set-mark 10
  
