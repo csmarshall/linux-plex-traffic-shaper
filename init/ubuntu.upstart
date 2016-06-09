@@ -1,0 +1,14 @@
+# Ubuntu upstart script
+description "Starts traffic shaping for Plex Media Server"
+
+# start in normal runlevels when disks are mounted and networking is available
+start on runlevel [2345]
+
+# stop on shutdown/halt, single-user mode and reboot
+stop on runlevel [016]
+
+env config=/etc/default/plex-traffic-shape
+script
+  . $config
+  exec /usr/local/bin/plex-traffic-shape $IFDEV $RATE $MAXRATE $R2Q $IPBLOCK $PORT
+end script
