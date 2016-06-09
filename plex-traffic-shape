@@ -1,0 +1,110 @@
+#!/bin/sh
+# Setup Traffic Control to limit outgoing bandwidth
+# Sourced from:
+#   * http://www.cyberciti.biz/faq/linux-traffic-shaping-using-tc-to-control-http-traffic
+#   * https://forums.plex.tv/topic/39823-howto-limit-plex-media-server-bandwidth-on-linux/?p=466013
+#   * http://serverfault.com/questions/174010/limit-network-bandwith-for-an-ip
+#   * http://luxik.cdi.cz/~devik/qos/htb/manual/userg.htm
+#
+# Ensure that the sch_htb module is available.
+# For very high rates, you may need to adjust the quantum values. See: http://mailman.ds9a.nl/pipermail/lartc/2003q1/007508.html
+
+#Timestamp Function for logging info
+ts () {
+        echo -n "$(date +'%F-%R:%S ')"
+        echo $*
+}
+
+usage() {
+  echo "$0 ifdev rate maxrate ipblock port"
+  echo -e "\tifdev is usually eth0"
+  echo -e "\trate and maxrate are a rate accepted by tc (e.g. 500kbit, 1mbit)"
+  echo -e "\tipblock is a IP block per iptables syntax (e.g. 192.168.1.0/24"
+  echo -e "\tport is the port that your plex server is listening on (eg 32400)"
+  exit 1
+}
+
+IFDEV=$1
+RATE=$2
+MAXRATE=$3
+R2Q=$4
+IPBLOCK=$5
+PORT=$6
+
+if [ -z $IFDEV ] || [ -z $RATE ] || [ -z $MAXRATE ] || [ -z $R2Q ] || [ -z $IPBLOCK ];then
+  usage;
+fi
+
+### Start
+ts "Start ${0} ${*}"
+
+### Modules
+ts "modprobe sch_htb"
+modprobe sch_htb
+
+### Sleep for a second
+ts "Sleeping for 1 second"
+sleep 1
+
+### Delete all TC rules for $IFDEV
+ts "Delete all TC rules for $IFDEV"
+ts "Running: \"/sbin/tc qdisc del dev $IFDEV root 2> /dev/null || /bin/true\""
+#/sbin/tc qdisc del dev $IFDEV root 2> /dev/null || /bin/true
+#/sbin/tc qdisc del dev $IFDEV root 2> /dev/null 
+/sbin/tc qdisc del dev $IFDEV root
+
+### Delete the iptables mangle rule if it exists
+ts "Delete the iptables mangle rule if it exists"
+##ts "Running: \"/sbin/iptables -D OUTPUT -t mangle -p tcp --port ${PORT} ! --dst "$IPBLOCK" -j MARK --set-mark 10  2> /dev/null || /bin/true\""
+###/sbin/iptables -D OUTPUT -t mangle -p tcp --sport ${PORT} ! --dst "$IPBLOCK" -j MARK --set-mark 10  2> /dev/null || /bin/true
+##/sbin/iptables -D OUTPUT -t mangle -p tcp --sport ${PORT} ! --dst "$IPBLOCK" -j MARK --set-mark 10
+ts "Running: \"/sbin/iptables -t mangle --flush 2> /dev/null || /bin/true\""
+#/sbin/iptables -t mangle --flush 2> /dev/null || /bin/true
+/sbin/iptables -t mangle --flush 
+
+### Activate queueing discipline
+ts "Activate queueing discipline"
+ts "Running: \"/sbin/tc qdisc add dev $IFDEV root handle 1: htb default 20 r2q "$R2Q"\""
+/sbin/tc qdisc add dev $IFDEV root handle 1: htb default 20 r2q "$R2Q"
+
+### Define class with limited allowed bandwidth
+ts "Define class with limited allowed bandwidth"
+
+ts "Running: \"/sbin/tc class add dev $IFDEV parent 1: classid 1:1 htb rate \"$MAXRATE\" ceil \"$MAXRATE\""
+/sbin/tc class add dev $IFDEV parent 1: classid 1:1 htb rate "$MAXRATE" ceil "$MAXRATE"
+ts "Running: \"/sbin/tc class add dev $IFDEV parent 1:1 classid 1:10 htb rate \"$RATE\" ceil \"$MAXRATE\""
+/sbin/tc class add dev $IFDEV parent 1:1 classid 1:10 htb rate "$RATE" ceil "$MAXRATE"
+ 
+### Send packets in round-robin if we have too many clients and too little BW
+ts "Send packets in round-robin if we have too many clients and too little BW"
+ts "Running: \"/sbin/tc qdisc add dev $IFDEV parent 1:10 handle 100: sfq perturb 10\""
+/sbin/tc qdisc add dev $IFDEV parent 1:10 handle 100: sfq perturb 10
+ 
+### Create iptables mangle rule for outgoing port ${PORT}(Plex Media Server)
+ts "Create iptables mangle rule for outgoing port ${PORT}(Plex Media Server)"
+ts "Running: \"/sbin/iptables -A OUTPUT -t mangle -p tcp --sport ${PORT} ! --dst \"$IPBLOCK\" -j MARK --set-mark 10\""
+/sbin/iptables -A OUTPUT -t mangle -p tcp --sport ${PORT} ! --dst "$IPBLOCK" -j MARK --set-mark 10
+ 
+### Assign the rule to the proper qdisc
+ts "Assign the rule to the proper qdisc"
+ts "Running: \"/sbin/tc filter add dev $IFDEV parent 1: prio 3 protocol all handle 10 fw flowid 1:10\""
+/sbin/tc filter add dev $IFDEV parent 1: prio 3 protocol all handle 10 fw flowid 1:10
+
+ 
+### Notes
+## Source variables
+# . /etc/default/plex-traffic-shape
+## show TC rules
+ts "show TC rules"
+# /sbin/tc -s -d class show dev $IFDEV
+ts "Run: sudo /sbin/tc -s -d class show dev $IFDEV"
+## Show iptables mangle rules
+ts "Show iptables mangle rules"
+# /sbin/iptables -t mangle -n -v -L
+ts "Run: sudo /sbin/iptables -t mangle -n -v -L"
+## Show actual bandwidth being used on 32400
+ts "Show actual bandwidth being used on ${PORT}"
+# watch -n 1 /sbin/tc -s -d class show dev $IFDEV
+ts "Run: watch -n 1 \"sudo /sbin/tc -s -d class show dev $IFDEV\""
+ts "Done"
+echo
